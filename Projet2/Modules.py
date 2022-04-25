@@ -15,8 +15,8 @@ class Module(object):
         return
 #----------------------------------Convolution Layer----------------------------------------------------------
 
-class Convolution(Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, biais = True, initOption='Normal'):
+class Conv2d(Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=None, dilation=1, biais = True, initOption='Normal'):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -38,7 +38,7 @@ class Convolution(Module):
         self.padding = padding
         self.dilatation = dilatation
         self.initOption = initOption
-        
+        self.p = 1 if padding != None else 0
         self.kernel = torch.empty(self.out_channels,self.in_channels,self.kernel_size[0],self.kernel_size[1])
         self.gradkernel = torch.empty(self.out_channels,self.in_channels,self.kernel_size[0],self.kernel_size[1])
         
@@ -91,24 +91,87 @@ class Convolution(Module):
     
         
     def forward(self,image):
+        self.input = image
+        shape = image.size()
+        output_shape = (self.out_channels, int((shape[0] - kernel_size[0] + 2 * self.p) / stride[0]) + 1,
+                            int((shape[1] - kernel_size[1] + 2 * self.p) / stride[1]) + 1)
+        out = torch.empty(output_shape)
         for channel in range(self.out_channels):
             #image = self.padding()
-            shape = image.shape
             rv = 0
             cimg = []
-            for r in range(self.kernel_size[0], shape[0]+1, self.stride[0]):
+            for r in range(self.kernel_size[1], shape[1]+1, self.stride[0]):
                 cv = 0
-                for c in range(self.kernel_size[1], shape[1]+1, self.stride[1]):
-                    chunk = image[rv:r, cv:c]
+                for c in range(self.kernel_size[2], shape[2]+1, self.stride[1]):
+                    chunk = image[:,rv:r, cv:c]
                     soma = chunk * self.kernel[channel, :, :, :]
                     summa = soma.sum() + self.biases[channel]
                     cimg.append(summa)
-                    cv+=stride[1]
-                rv+=stride[0]
+                    cv+=self.stride[1]
+                rv+=self.stride[0]
             cimg = np.array(cimg).reshape(int(rv/stride[0]), int(cv/stride[1]))
+            out[channel, :, :] = cimg
+        return out
             
+    # Sources Backprop : https://pavisj.medium.com/convolutions-and-backpropagations-46026a8f5d2c
+    # https://github.com/zishansami102/CNN-from-Scratch/blob/master/MNIST/convnet.py
+    # https://medium.com/@ngocson2vn/a-gentle-explanation-of-backpropagation-in-convolutional-neural-network-cnn-1a70abff508b
+    # https://towardsdatascience.com/convolutional-neural-networks-from-the-ground-up-c67bb41454e1
+    # https://q-viper.github.io/2020/06/05/convolutional-neural-networks-from-scratch-on-python/#312-conv2d-layer
+    
     def backward(self):
         
+
+#----------------------------------Upsampling-----------------------------------------------------------------
+
+class NearestUpsampling(Module):
+    def __init__(self, scale_factor):
+        super().__init__()
+        self.scale_factor = scale_factor
+        self.kernel_size = (scale_factor,scale_factor)
+        
+    def forward(self,image):
+        self.input = image
+        shape = image.size()
+        output_shape = (shape[0], shape[1] * self.kernel_size[0], shape[2] * self.kernel_size[1])
+        out = torch.empty(output_shape)
+        for channel in range(self.out_channels):
+            #image = self.padding()
+            rv = 0
+            i = 0
+            for r in range(self.kernel_size[0], shape[1]+1, self.kernel_size[0]):
+                cv = 0
+                j = 0
+                for c in range(self.kernel_size[1], shape[2]+1, self.kernel_size[1]):
+                    out[channel,rv:r, cv:c] = image[channel, i, j]
+                    j+=1
+                    cv+=self.kernel_size[1]
+                i+=1
+                rv+=self.kernel_size[0]
+        return out  
+    
+    def backward(self,upstream_derivative):
+        shape = self.input.size()
+        self.derivative = np.zeros(shape) 
+        
+        for f in range(shape[2]):
+            i = 0
+            rv = 0
+            for r in range(self.kernel_size[0], shape[0]+1,self.kernel_size[0]):
+                cv = 0
+                j = 0
+                for c in range(self.kernel_size[1], shape[1]+1, self.kernel_size[1]):
+                    dout = upstream_derivative[channel, rv:r, cv:c]
+                    self.derivative[i, j] = dout.sum()
+                    j+=1
+                    cv+=cstep
+                rv+=rstep
+                i+=1
+        return self.derivative
+    
+    def param(self):
+        return []
+    
 
 #----------------------------------Activation Functions-------------------------------------------------------
 class ReLU(Module):
