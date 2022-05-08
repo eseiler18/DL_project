@@ -20,122 +20,6 @@ class Module(object):
         return
 #----------------------------------Convolution Layer----------------------------------------------------------
 class Conv2d(Module):
-
-    in_channels: int
-    out_channels: int
-    kernel_size: Tuple[int, int]
-    padding: Tuple[int, int]
-    dilation: Tuple[int, int]
-    stride: Tuple[int, int]
-
-
-    input: torch.Tensor
-    input_unf: torch.Tensor
-
-    weight: torch.Tensor
-    weight_grad: torch.Tensor
-
-    bias: torch.Tensor
-    bias_grad: torch.Tensor
-    bias_flag: bool
-
-    output_size: Tuple[int, int, int, int]
-
-
-    def compute_output_size(self, n, out_channels, win, hin, kernel_size, padding, dilation, stride):
-
-        hout = int((hin + 2*padding[0] - dilation[0]*(kernel_size[0] - 1) - 1)/stride[0] + 1)
-        wout = int((win + 2*padding[1] - dilation[1]*(kernel_size[1] - 1) - 1)/stride[1] + 1)
-
-        return (n, out_channels, hout, wout)
-
-    def __init__(self, in_channels, out_channels, kernel_size, padding=0, dilation=1, stride=1, bias=True):
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-
-        if isinstance(padding, int):
-            self.padding = (padding, padding)
-        else:
-            self.padding = padding
-
-        if isinstance(dilation, int):
-            self.dilation = (dilation, dilation)
-        else:
-            self.dilation = dilation
-
-        if isinstance(stride, int):
-            self.stride = (stride, stride)
-        else:
-            self.stride = stride
-
-        weight_size = (out_channels, in_channels, kernel_size[0], kernel_size[1]) #from conv2d doc
-
-        # initialize weight like in pytorch
-        k = 1/(in_channels*kernel_size[0]*kernel_size[1])
-        self.weight = empty(weight_size).uniform_(-sqrt(k), sqrt(k))
-        self.weight_grad = empty(weight_size).fill_(0.0)
-
-        # initialize bias to zero
-        self.bias = empty(out_channels)
-        self.bias_grad = empty(out_channels).fill_(0.0)
-        self.bias_flag = bias
-
-    def forward(self, input):
-        self.input_size = input.size()
-        print(self.input_size)
-        # unfold input
-        self.input_unf = unfold(input, kernel_size=self.kernel_size, padding=self.padding,
-                                stride=self.stride, dilation=self.dilation)
-        print('Weight PH')
-        print(self.weight)
-        
-        wxb = self.weight.view(self.out_channels, -1) @ self.input_unf
-        
-        print('convolved PH')
-        print(wxb)
-        
-        if self.bias_flag:
-            wxb.add_(self.bias.view(1, -1, 1))
-
-        self.output_size = self.compute_output_size(
-            input.size(0), self.out_channels, input.size(2), input.size(3), self.kernel_size, self.padding,
-            self.dilation, self.stride)
-
-        self.output_unf_size = wxb.size()
-        
-        return wxb.view(self.output_size)
-
-    def backward(self, gradwrtoutput):
-        # revert reshaping at the end of forward
-        gradwrtoutput_unf = gradwrtoutput.view(self.output_unf_size)
-
-        # compute grad w.r.t bias: sum over batch (dim=0) and over the blocks (dim=2)
-        bias_grad_unf = gradwrtoutput_unf.sum(dim=(0, 2))
-        self.bias_grad.add_(bias_grad_unf.view(self.out_channels))
-
-        # compute grad w.r.t. weight: like in the linear case for the unfolded tensor (modulo transpose)
-        # and then reshaping to folded shape
-        weight_grad_unf = self.input_unf @ gradwrtoutput_unf.transpose(1, 2)
-        weight_grad_fold = weight_grad_unf.view(-1, self.out_channels, self.in_channels,
-                                                self.kernel_size[0], self.kernel_size[1])
-        # sum gradients over batch
-        self.weight_grad.add_(weight_grad_fold.sum(dim=0))
-
-        # compute grad w.r.t. input: like in the linear  case for the unfolded tensor
-        # and then folding to the input size -> overlapping blocks are added which accumulates the gradients
-        gradwrtinput_unf = self.weight.view(self.out_channels, -1).t() @ gradwrtoutput_unf
-        gradwrtinput = fold(gradwrtinput_unf, output_size=(self.input_size[2], self.input_size[3]),
-                        kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation)
-
-        return gradwrtinput
-
-    def param(self):
-        return [(self.weight, self.weight_grad), (self.bias, self.bias_grad)]
-
-
-class Conv2dbis(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, dilation=1, biais = True, initOption='Normal'):
         super().__init__()
         self.in_channels = in_channels
@@ -170,8 +54,8 @@ class Conv2dbis(Module):
         #self.kernel = torch.empty(self.out_channels,self.in_channels,self.kernel_size[0],self.kernel_size[1])
         #self.gradkernel = torch.empty(self.out_channels,self.in_channels,self.kernel_size[0],self.kernel_size[1])
         
-        weight_size = (out_channels, in_channels, kernel_size[0], kernel_size[1])
-        k = 1/(in_channels*kernel_size[0]*kernel_size[1])
+        weight_size = (out_channels, in_channels, self.kernel_size[0],  self.kernel_size[1])
+        k = 1/(in_channels* self.kernel_size[0]* self.kernel_size[1])
         self.kernel = empty(weight_size).uniform_(-sqrt(k), sqrt(k))
         self.gradkernel = empty(weight_size).fill_(0.0)
         
@@ -211,7 +95,7 @@ class Conv2dbis(Module):
         # image.size = NbImages,NbChannels,NbRows,NbCols
         self.input = image
         shape = image.size()
-        print(shape)
+        
         self.input_size = shape
         
         hout = int((shape[2] + 2*self.padding[0] - self.dilation[0]*(self.kernel_size[0] - 1) - 1)/self.stride[0] + 1)
@@ -221,13 +105,7 @@ class Conv2dbis(Module):
         
         unfolded = torch.nn.functional.unfold(image, kernel_size=self.kernel_size, padding=self.padding, stride=self.stride, dilation=self.dilation)
         
-        print('Weight MY')
-        print(self.kernel)
-        
         convolved = self.kernel.view(self.out_channels, -1)@unfolded
-        print('convolved MY')
-        print(convolved)
-        
         #out = convolved.reshape(shape[0], self.out_channels, NbOutRows, NbOutCols)
         out = convolved.view(output_shape)
         
@@ -272,46 +150,20 @@ class Conv2dbis(Module):
 
         return grad_input
     
-    def backward2(self, gradwrtoutput):
-        self.input_size = self.input.size()
-        # revert reshaping at the end of forward
-        gradwrtoutput_unf = gradwrtoutput.view(self.convolved_shape)
-
-        # compute grad w.r.t bias: sum over batch (dim=0) and over the blocks (dim=2)
-        bias_grad_unf = gradwrtoutput_unf.sum(dim=(0, 2))
-        self.gradbiais.add_(bias_grad_unf.view(self.out_channels))
-
-        # compute grad w.r.t. weight: like in the linear case for the unfolded tensor (modulo transpose)
-        # and then reshaping to folded shape
-        weight_grad_unf = self.unfolded @ gradwrtoutput_unf.transpose(1, 2)
-        weight_grad_fold = weight_grad_unf.view(-1, self.out_channels, self.in_channels,
-                                                self.kernel_size[0], self.kernel_size[1])
-        # sum gradients over batch
-        self.gradkernel.add_(weight_grad_fold.sum(dim=0))
-
-        # compute grad w.r.t. input: like in the linear  case for the unfolded tensor
-        # and then folding to the input size -> overlapping blocks are added which accumulates the gradients
-        gradwrtinput_unf = self.kernel.view(self.out_channels, -1).t() @ gradwrtoutput_unf
-        gradwrtinput = fold(gradwrtinput_unf, output_size=(self.input_size[2], self.input_size[3]),
-                        kernel_size=self.kernel_size, stride=self.stride, padding=self.padding, dilation=self.dilation)
-
-        return gradwrtinput
-
-    
     def param(self):
         '''
         Return parameters.
         '''
         if self.biais is not None:
             return [(self.kernel, self.gradkernel),
-                    (self.biais, self.grad_biais)]
+                    (self.biais, self.gradbiais)]
         else:
             return [(self.kernel, self.gradkernel)]
     
     def zero_grad(self):
         self.gradkernel.zero_()
         if self.biais is not None:
-            self.grad_biais.zero_()
+            self.gradbiais.zero_()
         
 
 #----------------------------------Upsampling-----------------------------------------------------------------
@@ -338,7 +190,6 @@ class NearestUpsampling(Module):
 
         # Repeat for the colums, starting from the image with upsampled rows
         shape = img_ups_rows.size()
-        print(shape)
         ups_cols=[]
         for i in range(shape[3]):
             # extract the row
@@ -350,8 +201,14 @@ class NearestUpsampling(Module):
         
         return img_ups
     
-    def backward(self,upstream_derivative):
-        return torch.empty(self.input.size()).fill_(self.scale_factor**2)
+    def backward(self,upstream_derivative): #corriger ça
+        shape = self.input.size()
+        self.derivative = torch.empty(shape).fill_(0)
+        
+        for i in range(shape[2]):
+            for j in range(shape[3]):
+                self.derivative[:,:,i,j]=upstream_derivative[:,:,i*self.kernel_size[0]:(i+1)*self.kernel_size[0],j*self.kernel_size[1]:(j+1)*self.kernel_size[1]].sum(dim=(2,3))
+        return self.derivative
     
     def param(self):
         return []
@@ -410,14 +267,20 @@ class LeakyReLu(Module): #REVOIRRRR
 #----------------------------------Sequential Container-------------------------------------------------------
 
 class Sequential(Module):
-    def __init__(self, modules):
+    def __init__(self, *args):
+        
         super().__init__()
-        self.modules = modules
+        #for  module in modules: #check ces deux lignes
+         #   module.__init__()
+        self.modules = []
+        for module in args:
+            self.modules.append(module)
 
     def forward(self, x):
         self.x = x
         for m in self.modules:
             x = m.forward(x)
+            #print(x.shape)
         return x
 
     def backward(self, gradout):

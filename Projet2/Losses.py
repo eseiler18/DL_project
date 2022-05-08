@@ -1,3 +1,5 @@
+import torch
+
 class Loss(object):
     def forward(self, output, target):
         raise NotImplementedError
@@ -11,10 +13,10 @@ class MSE(Loss):
 
     def forward(self,output,target):
         self.output = output
-        selt.target = target.view(output.shape)
+        self.target = target.view(output.shape)
         loss = (self.target - self.output).pow(2)
-        return torch.mean(loss,1).view(output.shape)
+        return torch.mean(loss)
     
     def backward(self):
-        back = torch.div(self.output - self.target, self.output.size(0)) * 2
+        back = torch.div(self.output - self.target, torch.numel(self.output)) * 2
         return back
