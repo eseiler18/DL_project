@@ -7,7 +7,7 @@ from Optimizers import SGD
 from Losses import MSE
 from path import OUT_DIR
 from metrics import calculate_psnr
-
+from utils import show
 
 class Model():
     def __init__(self, input_channels=3, output_channels=3) -> None:
@@ -57,11 +57,13 @@ class Model():
     def validation(self, noisy, clean):
         valid_loss = []
         valid_pnsr = []
+        denoised = []
         for x_noised, x_clean in zip(noisy, clean):
 
             x_noised = x_noised.unsqueeze(0)
             x_clean = x_clean.unsqueeze(0)
             x_denoised = self.model.forward(x_noised)
+            denoised.append(x_denoised[0,:,:,:])
             loss = self.criterion.forward(x_denoised, x_clean)
             psnr = calculate_psnr(x_denoised, x_clean)
 
@@ -73,6 +75,10 @@ class Model():
         print('for our model :')
         print(f'Hit psnr = {avg_pnsr} dB')
         print(f'Hit loss = {avg_loss}')
+        
+        val_img_ind = [2, 5, 6]
+        for img in val_img_ind:
+            show([noisy[img], denoised[img], clean[img]])
 
     def load_pretrained_model(self, name="our_model.pickle"):
         with open(os.path.join(OUT_DIR, name), 'rb') as file:
