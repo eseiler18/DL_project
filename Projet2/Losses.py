@@ -15,7 +15,7 @@ class MSE(Loss):
 
     def forward(self, output, target):
         self.output = output
-        self.target = target.view(output.shape)
+        self.target = target 
         loss = (self.target - self.output).pow(2)
         return torch.mean(loss)
 

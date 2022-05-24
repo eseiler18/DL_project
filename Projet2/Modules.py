@@ -17,12 +17,13 @@ class Module(object):
 
     def zero_grad(self):
         return
-# -------------------------- ---Convolution Layer------------------------------
+    
+# -----------------------------Convolution Layer------------------------------
 
 
 class Conv2d(Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, biais=True, initOption='Normal'):
+                 padding=0, dilation=1, biais=True, initOption='Pytorch'):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -54,18 +55,6 @@ class Conv2d(Module):
             self.dilation = dilation
 
         self.initOption = initOption
-        # self.p = 1 if padding != None else 0
-        # self.kernel = torch.empty(self.out_channels,self.in_channels,
-        # self.kernel_size[0],self.kernel_size[1])
-        # self.gradkernel = torch.empty(self.out_channels,self.in_channels,
-        # self.kernel_size[0],self.kernel_size[1])
-
-        weight_size = (out_channels, in_channels, self.kernel_size[0],
-                       self.kernel_size[1])
-        k = 1/(in_channels * self.kernel_size[0] * self.kernel_size[1])
-        self.kernel = empty(weight_size).uniform_(-sqrt(k), sqrt(k))
-        self.gradkernel = empty(weight_size).fill_(0.0)
-
         if biais:
             self.biais = torch.empty(self.out_channels)
             self.gradbiais = torch.empty(self.out_channels)
@@ -80,6 +69,8 @@ class Conv2d(Module):
         '''
         Different methods for parameter initialization.
         '''
+        weight_size = (self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
+        
         if self.initOption == 'Normal':
             self.kernel.normal_()
             if self.biais is not None:
@@ -88,16 +79,17 @@ class Conv2d(Module):
             self.kernel.zero_()
             if self.biais is not None:
                 self.biais.zero_()
-        self.gradkernel.zero_()
+                
+        if self.initOption == 'Pytorch':
+            # initialize weight like in pytorch
+            k = 1/float(self.in_channels*self.kernel_size[0]*self.kernel_size[1])
+            self.kernel = empty(weight_size).uniform_(-sqrt(k), sqrt(k))
+            if self.biais is not None:
+            # initialize bias like in pytorch
+                self.biais = empty(self.out_channels).uniform_(-sqrt(k), sqrt(k))
+        self.gradkernel=empty(weight_size).fill_(0.0)
         if self.gradbiais is not None:
             self.gradbiais.zero_()
-
-    # Sources Backprop :
-    # https://pavisj.medium.com/convolutions-and-backpropagations-46026a8f5d2c
-    # https://github.com/zishansami102/CNN-from-Scratch/blob/master/MNIST/convnet.py
-    # https://medium.com/@ngocson2vn/a-gentle-explanation-of-backpropagation-in-convolutional-neural-network-cnn-1a70abff508b
-    # https://towardsdatascience.com/convolutional-neural-networks-from-the-ground-up-c67bb41454e1
-    # https://q-viper.github.io/2020/06/05/convolutional-neural-networks-from-scratch-on-python/#312-conv2d-layer
 
     def forward(self, image):
         # image.size = NbImages,NbChannels,NbRows,NbCols
@@ -118,8 +110,6 @@ class Conv2d(Module):
                                               dilation=self.dilation)
 
         convolved = self.kernel.view(self.out_channels, -1)@unfolded
-        # out = convolved.reshape(shape[0], self.out_channels, NbOutRows,
-        #                         NbOutCols)
         out = convolved.view(output_shape)
 
         if self.biais is not None:
@@ -129,14 +119,9 @@ class Conv2d(Module):
         self.unfolded = unfolded
         self.kernel_unfolded = self.kernel.reshape(self.out_channels, -1).t()
 
-    # Sources : https://github.com/coolgpu/Demo_Conv2d_forward_and_backward/blob/master/my_conv2d_v1.py
-    # https://coolgpu.github.io/coolgpu_blog/github/pages/2020/10/04/convolution.html#_Custom_implementation1
-
         return out
 
     def backward(self, upstream_derivative):
-
-        # shape = self.input.size()
 
         # grad wrt biais: sum over batch (dim=0) and over the blocks (dim=2,3)
         grad_biais = upstream_derivative.sum(dim=[0, 2, 3])
@@ -147,12 +132,12 @@ class Conv2d(Module):
         # reshape upstream derivative to match the shape before the folding
         # operation in the forward pass
         upstream_derivative_unfolded = upstream_derivative.reshape(self.convolved_shape)
-
-        grad_kernel_unfolded = self.unfolded.matmul(upstream_derivative_unfolded.transpose(1, 2))
+        
+        grad_kernel_unfolded = upstream_derivative_unfolded @ self.unfolded.transpose(1, 2)
         grad_kernel = grad_kernel_unfolded.view(-1, self.out_channels, self.in_channels, self.kernel_size[0], self.kernel_size[1])
 
         self.gradkernel = grad_kernel.sum(dim=0)
-
+        
         # grad wrt input
 
         grad_input_folded = self.kernel.view(self.out_channels, -1).t()@upstream_derivative_unfolded
@@ -160,6 +145,7 @@ class Conv2d(Module):
         grad_input = torch.nn.functional.fold(grad_input_folded, (self.input_size[2], self.input_size[3]), (self.kernel_size[0], self.kernel_size[1]), padding=self.padding, stride=self.stride, dilation=self.dilation)
 
         return grad_input
+
 
     def param(self):
         '''
@@ -189,33 +175,26 @@ class NearestUpsampling(Module):
         self.input = image
         shape = image.size()
 
-        # First, upsamples the rows
+        # Upsample the rows
         ups_rows = []
         for i in range(shape[2]):
-            # extract the row
             rows = image[:, :, i, :].view(shape[0], shape[1], 1, shape[3])
-            # concatenate n times the extracted row, with n=scale_factor
+            # concatenate n=scale_factor times the row
             ups_rows.append(cat(self.scale_factor*[rows], dim=2))
-        # concatenate the groups of repeted rows to construct the final
-        # upsampled image
+        # concatenate the groups of repeted rows 
         img_ups_rows = cat(ups_rows, dim=2)
 
-        # Repeat for the colums, starting from the image with upsampled rows
+        # Repeat for the colums
         shape = img_ups_rows.size()
         ups_cols = []
         for i in range(shape[3]):
-            # extract the row
             cols = img_ups_rows[:, :, :, i].view(shape[0], shape[1], shape[2],
                                                  1)
-            # concatenate n times the extracted row, with n=scale_factor
             ups_cols.append(cat(self.scale_factor*[cols], dim=3))
-        # concatenate the groups of repeted rows to construct the final
-        # upsampled image
         img_ups = cat(ups_cols, dim=3)
         return img_ups
 
     def backward(self, upstream_derivative):
-        # corriger ça
         shape = self.input.size()
         self.derivative = torch.empty(shape).fill_(0)
 
@@ -265,25 +244,6 @@ class Sigmoid(Module):
     def param(self):
         return []
 
-
-class LeakyReLu(Module):
-    # REVOIRRRR
-    def __init__(self, alpha=0.01):
-        super().__init__()
-        self.alpha = alpha
-
-    def forward(self, x):
-        self.x = x
-        return x.clamp(min=0.0) + self.alpha*x.clamp(max=0.0)
-
-    def backward(self, grdwrtoutput):
-        drelu = torch.ones(self.s.size())
-        drelu[self.s < 0] = self.alpha
-        return grdwrtoutput * drelu
-
-    def param(self):
-        return []
-
 # ----------------------------------Sequential Container-----------------------
 
 
@@ -291,8 +251,8 @@ class Sequential(Module):
     def __init__(self, *args):
 
         super().__init__()
-        # for  module in modules: #check ces deux lignes
-        #   module.__init__()
+        # for  module in modules: 
+        #     module.__init__()
         self.modules = []
         for module in args:
             self.modules.append(module)
@@ -301,7 +261,6 @@ class Sequential(Module):
         self.x = x
         for m in self.modules:
             x = m.forward(x)
-            # print(x.shape)
         return x
 
     def backward(self, gradout):

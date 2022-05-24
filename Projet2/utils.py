@@ -9,16 +9,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-
 def show(imgs):
     '''Plot the images
     imgs: list of images'''
 
-    fix, axs = plt.subplots(ncols=len(imgs), squeeze=False)
-    for i, img in enumerate(imgs):
-        img = img.detach()
-        img = torchvision.transforms.functional.to_pil_image(img)
-        axs[0, i].imshow(np.asarray(img))
-        axs[0, i].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
+    fix, ax = plt.subplots(ncols=len(imgs), squeeze=False)
+    for i, im in enumerate(imgs):
+        im = im.detach()
+        im = torchvision.transforms.functional.to_pil_image(im)
+        ax[0, i].imshow(np.asarray(im))
+        ax[0, i].set(xticklabels=[], yticklabels=[], xticks=[], yticks=[])
     plt.tight_layout()
     plt.show()
