@@ -9,11 +9,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def show(imgs):
+def show(imgs,save=False,name='output.eps'):
     '''Plot the images
     imgs: list of images'''
 
-    fix, ax = plt.subplots(ncols=len(imgs), squeeze=False)
+    fix, ax = plt.subplots(figsize=(6, 2.5),ncols=len(imgs), squeeze=False)
     for i, im in enumerate(imgs):
         im = im.detach()
         im = torchvision.transforms.functional.to_pil_image(im)
@@ -24,3 +24,6 @@ def show(imgs):
     ax[0,2].set_title('Clean')
     plt.tight_layout()
     plt.show()
+    if save:
+        plt.savefig(name, bbox_inches='tight', format='eps')
+    
