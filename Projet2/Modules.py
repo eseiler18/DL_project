@@ -163,7 +163,7 @@ class Conv2d(Module):
             self.gradbiais.zero_()
 
 
-# ----------------------------------Upsampling---------------------------------
+# ----------------------------------NearestUpsampling---------------------------------
 
 class NearestUpsampling(Module):
     def __init__(self, scale_factor):
@@ -206,6 +206,39 @@ class NearestUpsampling(Module):
     def param(self):
         return []
 
+# ---------------------------------- Upsampling---------------------------------
+
+class Upsampling(Module):
+    def __init__(self, in_channels, out_channels, kernel_size, dilation, padding, scale_factor):
+
+        super().__init__()
+        self.modules = []
+        self.modules.append(NearestUpsampling(scale_factor))
+        self.modules.append(Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding))
+    
+    def forward(self, x):
+        self.x = x
+        for m in self.modules:
+            x = m.forward(x)
+        return x
+
+    def backward(self, gradout):
+        reversed_modules = self.modules[::-1]
+        out = gradout
+        for m in reversed_modules:
+            out = m.backward(out)
+        return out
+
+    def param(self):
+        param = []
+        for m in self.modules:
+            param.extend(m.param())
+        return param
+
+    def zero_grad(self):
+        for m in self.modules:
+            m.zero_grad()
+            
 
 # ----------------------------------Activation Functions-----------------------
 class ReLU(Module):
